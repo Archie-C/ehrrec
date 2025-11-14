@@ -1,0 +1,10 @@
+defaults:
+- backend: pandas
+- dataset: mimic3
+- preprocess: gamenet
+- model: gamenet
+- trainer: pytorch
+
+seed: 1203
+data_dir: data
+output_dir: outputs

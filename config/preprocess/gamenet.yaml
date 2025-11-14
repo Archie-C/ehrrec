@@ -1,0 +1,3 @@
+name: gamenet
+
+output_dir: data/processed/GAMENet/MIMIC-III
