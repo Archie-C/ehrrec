@@ -1,0 +1,19 @@
+name: mimic3
+
+paths:
+  diagnoses: data/raw/MIMIC-III/DIAGNOSES_ICD.csv
+  procedures: data/raw/MIMIC-III/PROCEDURES_ICD.csv
+  medications: data/raw/MIMIC-III/PRESCRIPTIONS.csv
+  ndc_to_rxnorm: data/raw/MIMIC-III/ndc2rxnorm_mapping.txt
+  rxnorm_to_atc: data/raw/MIMIC-III/ndc2atc_level4.csv
+  cid_to_atc: data/raw/MIMIC-III/drug-atc.csv
+  ddi: data/raw/MIMIC-III/drug-DDI.csv
+
+kwargs:
+  diagnoses: {low_memory: False}
+  procedures: {low_memory: False}
+  medications: {low_memory: False}
+  ndc_to_rxnorm: {}
+  rxnorm_to_atc: {}
+  cid_to_atc: {}
+  ddi: {low_memory: False}

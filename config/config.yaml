@@ -1,0 +1,8 @@
+defaults:
+- backend: pandas
+- dataset: mimic3
+- preprocessor: gamenet
+- _self_
+
+seed: 1203
+data_dir: data

@@ -1,0 +1,8 @@
+data/raw/MIMIC-III/DIAGNOSES_ICD.csv
+data/raw/MIMIC-III/PRESCRIPTIONS.csv
+data/raw/MIMIC-III/PROCEDURES_ICD.csv
+data/raw/MIMIC-III/drug-DDI.csv
+.vscode/
+__pycache__/
+*.pyc
+*.pyo

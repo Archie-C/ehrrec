@@ -1,0 +1,35 @@
+backend:
+  name: pandas
+dataset:
+  name: mimic3
+  paths:
+    diagnoses: data/raw/MIMIC-III/DIAGNOSES_ICD.csv
+    procedures: data/raw/MIMIC-III/PROCEDURES_ICD.csv
+    medications: data/raw/MIMIC-III/PRESCRIPTIONS.csv
+    ndc_to_rxnorm: data/raw/MIMIC-III/ndc2rxnorm_mapping.txt
+    rxnorm_to_atc: data/raw/MIMIC-III/ndc2atc_level4.csv
+    cid_to_atc: data/raw/MIMIC-III/drug-atc.csv
+    ddi: data/raw/MIMIC-III/drug-DDI.csv
+  kwargs:
+    diagnoses:
+      low_memory: false
+    procedures:
+      low_memory: false
+    medications:
+      low_memory: false
+    ndc_to_rxnorm: {}
+    rxnorm_to_atc: {}
+    cid_to_atc: {}
+    ddi:
+      low_memory: false
+preprocessor:
+  name: gamenet
+  output_dir: data/processed/GAMENet/MIMIC-III
+  filenames:
+    records: records.pkl
+    vocab: vocab.pkl
+    filtered_data: filtered_data.pkl
+    ehr_adj: ehr_adj.pkl
+    ddi_adj: ddi_adj.pkl
+seed: 1203
+data_dir: data

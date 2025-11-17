@@ -1,0 +1,8 @@
+backend: {}
+dataset: {}
+preprocess:
+  name: gamenet
+  output_dir: data/processed/GAMENet/MIMIC-III
+seed: 1203
+data_dir: data
+output_dir: outputs
