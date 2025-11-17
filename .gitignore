@@ -2,7 +2,13 @@ data/raw/MIMIC-III/DIAGNOSES_ICD.csv
 data/raw/MIMIC-III/PRESCRIPTIONS.csv
 data/raw/MIMIC-III/PROCEDURES_ICD.csv
 data/raw/MIMIC-III/drug-DDI.csv
+data/processed/GAMENet/MIMIC-III/ddi_adj.pkl
+data/processed/GAMENet/MIMIC-III/ehr_adj.pkl
+data/processed/GAMENet/MIMIC-III/filtered_data.pkl
+data/processed/GAMENet/MIMIC-III/records.pkl
+data/processed/GAMENet/MIMIC-III/vocab.pkl
 .vscode/
 __pycache__/
 *.pyc
 *.pyo
+outputs/

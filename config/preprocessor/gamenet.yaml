@@ -1,6 +1,6 @@
 name: gamenet
 
-output_dir: data/processed/GAMENet/MIMIC-III
+output_dir: data/processed/GAMENet/MIMIC-III/
 filenames:
   records: records.pkl
   vocab: vocab.pkl

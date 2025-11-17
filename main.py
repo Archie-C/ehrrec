@@ -10,8 +10,9 @@ def main(cfg: DictConfig) -> None:
     backend = create_backend(cfg.backend)
     loader = create_loader(cfg.dataset, backend)
     data = loader.load(cfg.dataset.paths, cfg.dataset.kwargs)
-    preprocessor = create_preprocessor(cfg.preprocessor)
+    preprocessor = create_preprocessor(cfg.preprocessor, log_level=cfg.logging.level)
     data = preprocessor.run(data)
+    preprocessor.save(data)
 
 if __name__ == "__main__":
     main()

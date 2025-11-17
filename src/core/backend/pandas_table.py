@@ -27,6 +27,9 @@ class PandasGroupBy(GroupBy):
 class PandasTable(Table):
     def __init__(self, df: pd.DataFrame):
         self.df = df
+    
+    def __repr__(self):
+        return repr(self.df)
         
     def as_type(self, dtypes: dict):
         df = self.df.astype(dtypes)
@@ -64,8 +67,13 @@ class PandasTable(Table):
         df = self.df.fillna(value=values, method=method)
         return PandasTable(df)
     
+    def filter(self, predicate):
+        mask = self.df.apply(lambda row: predicate(row.to_dict()), axis=1)
+        return PandasTable(self.df[mask])
+    
     def groupby(self, by):
         return PandasGroupBy(self.df.groupby(by))
+
 
     def merge(self, right, on=None, left_on=None, right_on=None, how="inner", suffixes=("_x", "_y")):
         merged = self.df.merge(
@@ -89,13 +97,16 @@ class PandasTable(Table):
     def row_iter(self):
         for _, row in self.df.iterrows():
             yield row.to_dict()
-
-    def filter(self, predicate):
-        mask = self.df.apply(lambda row: predicate(row.to_dict()), axis=1)
-        return PandasTable(self.df[mask])
+            
+    def rows_count(self):
+        return self.df.shape[0]
     
     def select(self, columns):
         return PandasTable(self.df[columns])
+
+    @property
+    def shape(self):
+        return self.df.shape
 
     def slice_rows(self, start, end):
         return PandasTable(self.df.iloc[start:end])
@@ -121,3 +132,6 @@ class PandasTable(Table):
 
     def __getitem__(self, col):
         return PandasColumn(self.df[col])
+
+    def __len__(self):
+        return len(self.df)

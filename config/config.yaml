@@ -5,4 +5,6 @@ defaults:
 - _self_
 
 seed: 1203
+logging:
+  level: DEBUG
 data_dir: data
