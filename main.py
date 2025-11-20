@@ -51,7 +51,11 @@ def main(cfg: DictConfig) -> None:
     
     voc_size = dataset_context.vocab_sizes()
     
-    model_input_builder = create_model_input_builder(cfg.model_inputs)
+    model_input_builder = create_model_input_builder(
+        cfg.model_inputs,
+        log_level=cfg.logging.level,
+        run_mode=cfg.run.mode,
+    )
     train_data, val_data, test_data = model_input_builder.run(
         source=dataset_context.name,
         context=dataset_context,
