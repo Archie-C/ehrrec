@@ -1,0 +1,4 @@
+name: knn
+save_dir: results/KNN
+log_level: INFO
+show_progress: true

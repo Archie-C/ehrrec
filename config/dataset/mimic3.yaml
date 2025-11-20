@@ -10,9 +10,9 @@ paths:
   ddi: data/raw/MIMIC-III/drug-DDI.csv
 
 kwargs:
-  diagnoses: {low_memory: False}
-  procedures: {low_memory: False}
-  medications: {low_memory: False}
+  diagnoses: {low_memory: False, dtype: {ICD9_CODE: category}}
+  procedures: {low_memory: False, dtype: {ICD9_CODE: category}}
+  medications: {low_memory: False, dtype: {NDC: category}}
   ndc_to_rxnorm: {}
   rxnorm_to_atc: {}
   cid_to_atc: {}

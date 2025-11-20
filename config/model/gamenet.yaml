@@ -1,0 +1,8 @@
+name: gamenet
+
+emb_dim: 64
+dropout: 0.4
+ddi_in_memory: true
+ehr_adj_path: data/processed/GAMENet/MIMIC-III/ehr_adj.pkl
+ddi_adj_path: data/processed/GAMENet/MIMIC-III/ddi_adj.pkl
+vocab_path: data/processed/GAMENet/MIMIC-III/vocab.pkl

@@ -1,0 +1,4 @@
+mode: "train"    # full | process | train | eval | predict
+
+seed: 1203
+model: saved/GAMENet/best_model.pt

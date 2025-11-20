@@ -1,7 +1,12 @@
 defaults:
-- backend: pandas
 - dataset: mimic3
 - preprocessor: gamenet
+- model: gamenet
+- trainer: gamenet
+- evaluator: gamenet
+- splitter: gamenet
+- model_inputs: gamenet
+- run: default
 - _self_
 
 seed: 1203
