@@ -1,6 +1,7 @@
 
 from src.training.GAMENetTrainer import GAMENetTrainer
 from src.training.KNNTrainer import KNNTrainer
+from src.training.MostPopularTrainer import MostPopularTrainer
 
 
 def create_trainer(cfg):
@@ -25,6 +26,11 @@ def create_trainer(cfg):
             save_dir=cfg.save_dir,
             log_level=cfg.log_level,
             show_progress=cfg.show_progress,
+        )
+    if name == "most_popular":
+        return MostPopularTrainer(
+            save_dir=cfg.save_dir,
+            log_level=cfg.log_level,
         )
 
     raise ValueError(f"Unknown trainer: {cfg.name}")

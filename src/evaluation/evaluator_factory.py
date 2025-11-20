@@ -1,5 +1,6 @@
 from src.evaluation.GAMENetEvaluator import GAMENetEvaluator
 from src.evaluation.KNN_Evaluator import KNNEvaluator
+from src.evaluation.MostPopularEvaluator import MostPopularEvaluator
 
 
 def create_evaluator(cfg):
@@ -19,6 +20,11 @@ def create_evaluator(cfg):
             save_dir=cfg.save_dir,
             log_level=cfg.log_level,
             show_progress=cfg.show_progress,
+        )
+    if name == "most_popular":
+        return MostPopularEvaluator(
+            save_dir=cfg.save_dir,
+            log_level=cfg.log_level,
         )
 
     raise ValueError(f"Unknown evaluator: {cfg.name}")

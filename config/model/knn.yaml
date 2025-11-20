@@ -1,6 +1,6 @@
 name: knn
 
-k: 50
+k: 100
 threshold: 0.3
 gamma: 1.0
 temperature: 1.0

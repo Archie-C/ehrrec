@@ -2,6 +2,7 @@ import torch
 
 from src.models.GAMENet import GAMENet
 from src.models.KNN import KNNModel, KNNConfig
+from src.models.MostPopular import MostPopularModel, MostPopularConfig
 
 
 def create_model(cfg_model, *, device=None):
@@ -40,4 +41,7 @@ def create_model(cfg_model, *, device=None):
             mode=cfg_model.mode,
         )
         return KNNModel(config=config, device=device or torch.device("cpu"))
+    if name == "most_popular":
+        config = MostPopularConfig(top_k=cfg_model.top_k)
+        return MostPopularModel(config=config)
     raise ValueError(f"Unknown model: {name}")
