@@ -6,6 +6,7 @@ defaults:
 - evaluator: gamenet
 - splitter: gamenet
 - model_inputs: gamenet
+- tuning: default
 - run: default
 - _self_
 

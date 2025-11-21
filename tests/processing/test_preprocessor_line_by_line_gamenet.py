@@ -253,7 +253,6 @@ def create_patient_record(df, diag_voc, med_voc, pro_voc):
             admission.append([med_voc.word_to_idx[i] for i in row['NDC']])
             patient.append(admission)
         records.append(patient) 
-    dill.dump(obj=records, file=open('records_final.pkl', 'wb'))
     return records
 
 
