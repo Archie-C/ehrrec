@@ -1,0 +1,7 @@
+name: 4sdrug
+embedding_dim: 64
+dropout: 0.4
+vocab_path: data/processed/SafeDrug/MIMIC-III/vocab.pkl
+sym_sets_path: data/processed/FourSDrug/sym_sets.pkl
+drug_multihots_path: data/processed/FourSDrug/drug_multihots.pkl
+ddi_adj_path: data/processed/SafeDrug/MIMIC-III/ddi_adj.pkl

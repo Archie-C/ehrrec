@@ -1,0 +1,3 @@
+name: most_popular
+save_dir: results/MostPopular
+log_level: INFO

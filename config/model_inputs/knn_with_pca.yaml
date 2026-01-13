@@ -1,0 +1,4 @@
+name: knn_with_pca
+dim: 500
+cache_file: knn_pca.pt
+refit: false

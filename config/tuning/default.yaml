@@ -1,0 +1,14 @@
+name: knn_tuning
+method: grid  # grid | optuna
+metric_source: trainer  # trainer | evaluator
+metric: ja
+maximize: true
+params:
+  k: [32, 64, 128]
+  threshold: [0.2, 0.3]
+work_dir: tuning_runs/knn
+log_best_dir: tuning_runs/best
+evaluate_best: true
+optuna:
+  n_trials: 20
+evaluator_metric_names: [ddi_rate, ja, prauc, avg_p, avg_r, avg_f1]

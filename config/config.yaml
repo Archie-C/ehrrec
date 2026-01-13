@@ -1,0 +1,16 @@
+defaults:
+- dataset: mimic3_gamenet
+- preprocessor: gamenet
+- model: gamenet
+- trainer: gamenet
+- evaluator: gamenet
+- splitter: gamenet
+- model_inputs: gamenet
+- tuning: default
+- run: default
+- _self_
+
+seed: 1203
+logging:
+  level: DEBUG
+data_dir: data

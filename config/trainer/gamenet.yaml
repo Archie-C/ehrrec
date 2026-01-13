@@ -1,0 +1,16 @@
+# GAMENet trainer configuration
+name: "gamenet"
+
+# training hyperparameters
+epochs: 40
+lr: 0.0002
+
+# DDI loss
+ddi_loss: true
+target_ddi: 0.05
+ddi_decay: 0.85
+
+# logging + checkpoint saving
+save_dir: "saved/GAMENet"
+log_level: INFO
+show_progress: true
