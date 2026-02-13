@@ -1,5 +1,7 @@
+from typing import Iterable, Sequence, Dict, Optional, Set
 import numpy as np
 from sklearn.metrics import f1_score, roc_auc_score, average_precision_score
+import torch
 
 def multi_label_metric(y_gt, y_pred, y_prob=None):
     
@@ -115,3 +117,102 @@ def ddi_rate_score(record, ddi_adj):
                     if ddi_adj[med_i, med_j] == 1 or ddi_adj[med_j, med_i] == 1:
                         dd_cnt += 1
     return dd_cnt / all_cnt if all_cnt > 0 else 0
+
+
+def ddi_rate_single_multihot(adm, ddi_adj):
+    meds = torch.nonzero(adm, as_tuple=False).reshape(-1)
+    m = meds.numel()
+    if m < 2:
+        return 0.0
+
+    sub = ddi_adj[meds][:, meds]
+    dd_cnt = torch.triu(sub, diagonal=1).sum().item()
+    all_cnt = m * (m - 1) // 2
+
+    return dd_cnt / all_cnt
+
+
+def evaluate_multilabel_sets(
+    y_true: Sequence[Iterable[int]],
+    y_pred: Sequence[Iterable[int]],
+    ddi_adj: np.ndarray,
+    ignore_ids: Optional[Set[int]] = [0, 1],
+) -> Dict[str, float]:
+    """
+    Set-based multilabel metrics + DDI rate for both prediction and ground truth.
+
+    Returns mean:
+        - precision
+        - recall
+        - f1
+        - jaccard
+        - ddi_rate_pred
+        - ddi_rate_true
+    """
+
+    if ignore_ids is None:
+        ignore_ids = set()
+
+    ddi_bool = ddi_adj.astype(bool, copy=False)
+
+    def as_set(x):
+        s = set(x) if x is not None else set()
+        if ignore_ids:
+            s.difference_update(ignore_ids)
+        return s
+
+    def ddi_rate(med_set):
+        meds = sorted(med_set)
+        m = len(meds)
+        if m < 2:
+            return 0.0
+        total_pairs = m * (m - 1) // 2
+        ddi_pairs = 0
+        for i in range(m):
+            mi = meds[i]
+            for j in range(i + 1, m):
+                mj = meds[j]
+                if ddi_bool[mi, mj]:
+                    ddi_pairs += 1
+        return ddi_pairs / total_pairs
+
+    precs, recs, f1s, jaccs = [], [], [], []
+    ddi_pred, ddi_true = [], []
+
+    for t, p in zip(y_true, y_pred):
+        T, P = as_set(t), as_set(p)
+
+        inter = len(T & P)
+        union = len(T | P)
+
+        # precision
+        if len(P) == 0:
+            prec = 1.0 if len(T) == 0 else 0.0
+        else:
+            prec = inter / len(P)
+
+        # recall
+        rec = 1.0 if len(T) == 0 else inter / len(T)
+
+        # f1
+        f1 = 0.0 if (prec + rec) == 0 else 2 * prec * rec / (prec + rec)
+
+        # jaccard
+        jacc = 1.0 if union == 0 else inter / union
+
+        precs.append(prec)
+        recs.append(rec)
+        f1s.append(f1)
+        jaccs.append(jacc)
+
+        ddi_pred.append(ddi_rate(P))
+        ddi_true.append(ddi_rate(T))
+
+    return {
+        "precision": float(np.mean(precs)) if precs else 0.0,
+        "recall": float(np.mean(recs)) if recs else 0.0,
+        "f1": float(np.mean(f1s)) if f1s else 0.0,
+        "jaccard": float(np.mean(jaccs)) if jaccs else 0.0,
+        "ddi_rate_pred": float(np.mean(ddi_pred)) if ddi_pred else 0.0,
+        "ddi_rate_true": float(np.mean(ddi_true)) if ddi_true else 0.0,
+    }

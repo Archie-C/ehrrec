@@ -1,0 +1,5 @@
+name: micron
+
+embed_dim: 256
+vocab_path: data/processed/GAMENet/MIMIC-III/vocab.pkl
+ddi_adj_path: data/processed/GAMENet/MIMIC-III/ddi_adj.pkl
