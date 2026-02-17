@@ -30,7 +30,7 @@ class MIMIC3Preprocessor(AbstractPreprocessor):
         return ProcessedSpec(
             tables={"train": pd.DataFrame, "val": pd.DataFrame, "test": pd.DataFrame},
             meta={"columns": ["SUBJECT_ID", "HADM_ID", "DIAG_CODES", "MED_CODES", "PROC_CODES", "DIAG_LEN", "PROC_LEN", "MED_LEN", "ADMITTIME", "DIAG_IDS", "PROC_IDS", "MED_IDS"]},
-            artefacts={"ddi_adj": "", "ehr_adj": ""},
+            artefacts={"ddi_adj": "", "ehr_adj": "", "vocab": "", "molecule": ""},
             schema_version="0.1.0"
         )
     

@@ -1,4 +1,0 @@
-name: gamenet
-save_dir: results/GAMENet
-log_level: INFO
-show_progress: true

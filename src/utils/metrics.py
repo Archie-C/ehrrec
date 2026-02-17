@@ -3,6 +3,69 @@ import numpy as np
 from sklearn.metrics import f1_score, roc_auc_score, average_precision_score
 import torch
 
+class Metrics():
+    def __init__(self):
+        self.jaccard = 0
+        self.ddi_rate = 0
+        self.prauc = 0
+        self.f1 = 0 
+        self.num_meds = 0
+    
+    def add(self, metrics: "Metrics"):
+        self.jaccard += metrics.jaccard
+        self.ddi_rate += metrics.ddi_rate
+        self.prauc += metrics.prauc
+        self.f1 += metrics.f1
+        self.num_meds += metrics.num_meds
+    
+    def avg(self, n: int):
+        self.jaccard /= n
+        self.ddi_rate /= n
+        self.prauc /= n
+        self.f1 /= n
+        self.num_meds /= n
+        
+    def compute_jaccard(self, y_pred, y_gt):
+        intersection = (y_gt & y_pred).sum(dim=1).float()
+        union = (y_gt | y_pred).sum(dim=1).float()
+        union = torch.where(union == 0, torch.ones_like(union), union)
+        self.jaccard = (intersection / union).mean().item()
+        
+    def compute_ddi(self, y_pred, ddi_adj):
+        B, C = y_pred.shape
+        rates = []
+
+        for b in range(B):
+            meds = torch.nonzero(y_pred[b], as_tuple=False).reshape(-1)
+            m = meds.numel()
+            if m < 2:
+                rates.append(0.0)
+                continue
+
+            sub = ddi_adj[meds][:, meds]
+            dd_cnt = torch.triu(sub, diagonal=1).sum().item()
+            all_cnt = m * (m - 1) // 2
+            rates.append(dd_cnt / all_cnt)
+
+        self.ddi_rate = float(sum(rates) / len(rates))
+    
+    def compute_f1(self, y_pred, y_gt):
+        tp = (y_gt & y_pred).sum(dim=1).float()
+        fp = ((1 - y_gt) & y_pred).sum(dim=1).float()
+        fn = (y_gt & (1 - y_pred)).sum(dim=1).float()
+        denom = 2 * tp + fp + fn
+        denom = torch.where(denom == 0, torch.ones_like(denom), denom)
+        f1 = (2 * tp) / denom
+        self.f1 = f1.mean().item()
+        
+    def compute_prauc(self, y_pred_probs, y_gt):
+        probs = y_pred_probs.detach().cpu().numpy()
+        y_gt = y_gt.detach().cpu().numpy()
+        self.prauc = average_precision_score(y_gt, probs, average="macro")
+        
+    def compute_num_meds(self, y_pred):
+        self.num_meds = y_pred.sum(dim=1).float().mean().item()
+
 def multi_label_metric(y_gt, y_pred, y_prob=None):
     
     def jaccard(y_gt, y_pred):

@@ -1,16 +1,30 @@
-defaults:
-- dataset: mimic3_gamenet
-- preprocessor: gamenet
-- model: gamenet
-- trainer: gamenet
-- evaluator: gamenet
-- splitter: gamenet
-- model_inputs: gamenet
-- tuning: default
-- run: default
-- _self_
+name: main_config
 
-seed: 1203
-logging:
-  level: DEBUG
-data_dir: data
+seed: 42
+device: cuda
+
+data:
+  dataset: mimic_iii
+  data_dir: data/raw/MIMIC-III
+  diagnoses_file: DIAGNOSES_ICD.csv
+  procedures_file: PROCEDURES_ICD.csv
+  medications_file: PRESCRIPTIONS.csv
+  admissions_file: ADMISSIONS.csv
+  ndc_to_rxcui_file: ndc2RXCUI.txt
+  rxcui_to_atc3_file: RXCUI2atc3.csv
+  idx2drug_file: idx2drug.pkl
+  ddi_file: drug-DDI_gamenet.csv
+  drug_atc_file: drug-atc_gamenet.csv
+  ddi_mask_file: ddi_mask_H.pkl
+  molecule_path: idx2SMILES.pkl
+
+preprocessor:
+  dataset: mimic_iii
+
+datamodule:
+  batchsize: 1
+
+train:
+  epochs: 50
+  lr: [1e-5, 1e-3]
+  weight_decay: [0, 1e-3]

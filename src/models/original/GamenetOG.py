@@ -14,43 +14,14 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from src.models.BaseModel import BaseModel
 from src.utils.logging import get_logger
-from src.utils.metrics import evaluate_multilabel_sets
+from src.utils.metrics import Metrics, ddi_rate_score, evaluate_multilabel_sets
+from src.utils.one_hot_encode import multihot_to_margin_target, pred_indices_from_logits
 
 logger = get_logger("Original Gamenet")
 
 Visit = List[List[int]]                 # [diag, proc, med]
 Sample = Tuple[List[Visit], List[int]]
 
-@dataclass
-class GameNetTrainConfig:
-    """
-    Training configuration for the GAMENet model.
-    
-    Attributes:
-        epochs: Number of training epochs (default: 20).
-        lr: Learning rate for optimizer (default: 1e-3).
-        weight_decay: L2 regularization penalty (default: 0.0).
-        ddi_lambda: Weight for drug-drug interaction penalty in loss function.
-            Higher values encourage safer medication combinations (default: 0.1).
-        max_grad_norm: Maximum gradient norm for gradient clipping to prevent
-            exploding gradients (default: 5.0).
-        log_every: Log training metrics every N batches (default: 200).
-        seed: Random seed for reproducibility (default: 42).
-        batch_size: Number of samples per batch. Note: GAMENet typically uses
-            batch_size=1 for sequential patient visits (default: 1).
-        save_dir: Directory to save model checkpoints (default: "saved/GAMENET/").
-        ckpt_name: Filename for the best model checkpoint (default: "best_model.pt").
-    """
-    epochs: int = 40
-    lr: float = 2e-4
-    weight_decay: float = 0.0
-    ddi_lambda: float = 0.1
-    max_grad_norm: float = 5.0
-    log_every: int = 200
-    seed: int = 42
-    batch_size: int = 1
-    save_dir: str = "saved/GAMENETOG/"
-    ckpt_name: str = "best_model.pt"
 
 class GraphConvolution(nn.Module):
     """
@@ -218,7 +189,6 @@ class GCN(nn.Module):
 class GamenetOriginal(BaseModel, nn.Module):
     def __init__(
         self, 
-        cfg: GameNetTrainConfig, 
         vocab_size, 
         ehr_adj, 
         ddi_adj, 
@@ -230,7 +200,6 @@ class GamenetOriginal(BaseModel, nn.Module):
         Initialize the GAMENet model for medication recommendation.
         
         Args:
-            cfg: Training configuration containing hyperparameters.
             vocab_size: List of vocabulary sizes [diagnoses, procedures, medications].
                 Typically K=3 where vocab_size[0] is diagnoses, vocab_size[1] is 
                 procedures, and vocab_size[2] is medications.
@@ -247,7 +216,6 @@ class GamenetOriginal(BaseModel, nn.Module):
         nn.Module.__init__(self)
         
         self.name: str = "gamenet"
-        self.cfg = cfg
         
         # K = number of input modalities (diagnoses, procedures, medications)
         K = len(vocab_size)
@@ -298,15 +266,18 @@ class GamenetOriginal(BaseModel, nn.Module):
             nn.ReLU(),
             nn.Linear(emb_dim * 2, vocab_size[2])
         )
+        
+        self.bce_loss_fn = nn.BCEWithLogitsLoss()
+        self.mlm_loss_fn = nn.MultiLabelMarginLoss()
 
         self.init_weights()
         
-    def forward(self, input):
+    def forward(self, batch, artefacts):
         """
         Forward pass through GAMENet for medication recommendation.
         
         Args:
-            input: List of visits, where each visit is [diagnoses, procedures, medications].
+            batch: List of visits, where each visit is [diagnoses, procedures, medications].
                 Shape: [(visit_1), (visit_2), ..., (visit_n)]
                 Each visit_i is a tuple of 3 lists containing code indices.
         
@@ -320,6 +291,10 @@ class GamenetOriginal(BaseModel, nn.Module):
         # Step 1: Generate embeddings and encode sequences for diagnoses/procedures
         # ========================================================================
         
+        history_medications = batch["med_history"]
+        diagnoses = batch["diagnoses"]
+        procedures = batch["procedures"]
+        
         diagnosis_seq = []
         procedure_seq = []
         
@@ -327,19 +302,16 @@ class GamenetOriginal(BaseModel, nn.Module):
             """Average embeddings across codes within a single visit."""
             return embedding.mean(dim=1).unsqueeze(dim=0)  # (1, 1, emb_dim)
         
-        # Process each visit in the patient history
-        for visit in input:
-            # Embed and average diagnoses for this visit
-            diagnosis_codes = torch.LongTensor(visit[0]).unsqueeze(dim=0).to(self.device)
+        for diag in diagnoses:
+            diagnosis_codes = torch.tensor([diag], dtype=torch.long, device=self.device)
             diag_emb = self.dropout(self.embeddings[0](diagnosis_codes))
-            diag_avg = mean_embedding(diag_emb)  # (1, 1, emb_dim)
-            
-            # Embed and average procedures for this visit
-            procedure_codes = torch.LongTensor(visit[1]).unsqueeze(dim=0).to(self.device)
-            proc_emb = self.dropout(self.embeddings[1](procedure_codes))
-            proc_avg = mean_embedding(proc_emb)  # (1, 1, emb_dim)
-            
+            diag_avg = mean_embedding(diag_emb)
             diagnosis_seq.append(diag_avg)
+            
+        for proc in procedures:
+            procedure_codes = torch.tensor([proc], dtype=torch.long, device=self.device)
+            proc_emb = self.dropout(self.embeddings[1](procedure_codes))
+            proc_avg = mean_embedding(proc_emb)
             procedure_seq.append(proc_avg)
         
         # Stack visits into sequences
@@ -378,16 +350,15 @@ class GamenetOriginal(BaseModel, nn.Module):
             drug_memory = self.ehr_gcn()  # (num_medications, emb_dim)
 
         # Build historical context from previous visits (if any exist)
-        if len(input) > 1:
-            # Keys: query vectors from all previous visits
-            history_queries = queries[:-1]  # (num_visits-1, emb_dim)
+        # if len(batch) > 1:
+        #     # Keys: query vectors from all previous visits
+        #     history_queries = queries[:-1]  # (num_visits-1, emb_dim)
 
-            # Values: one-hot medication sets from previous visits
-            history_medications = np.zeros((len(input) - 1, self.vocab_size[2]))
-            for visit_idx, visit in enumerate(input[:-1]):  # Exclude current visit
-                history_medications[visit_idx, visit[2]] = 1  # Set prescribed medications to 1
-            history_medications = torch.FloatTensor(history_medications).to(self.device)  # (num_visits-1, num_medications)
-
+        #     # Values: one-hot medication sets from previous visits
+        #     history_medications = np.zeros((len(batch) - 1, self.vocab_size[2]))
+        #     for visit_idx, visit in enumerate(batch[:-1]):  # Exclude current visit
+        #         history_medications[visit_idx, visit[2]] = 1  # Set prescribed medications to 1
+        #     history_medications = torch.FloatTensor(history_medications).to(self.device)  # (num_visits-1, num_medications)
         # ========================================================================
         # Step 4: Read from memory banks and generate predictions
         # ========================================================================
@@ -398,7 +369,8 @@ class GamenetOriginal(BaseModel, nn.Module):
         global_context = torch.mm(global_attention, drug_memory)  # (1, emb_dim)
 
         # Read from dynamic historical memory (patient's medication history)
-        if len(input) > 1:
+        if history_medications is not None:
+            history_queries = queries[:-1]
             # Attention over previous visits based on current query
             visit_attention = F.softmax(torch.mm(current_query, history_queries.t()), dim=-1)  # (1, num_visits-1)
             
@@ -453,401 +425,47 @@ class GamenetOriginal(BaseModel, nn.Module):
 
         # Initialize EHR-DDI interpolation parameter
         self.inter.data.uniform_(-initrange, initrange)
-    
-    @staticmethod
-    def _multi_hot(med_ids: List[int], size: int, device: torch.device) -> torch.Tensor:
-        """
-        Convert a list of medication IDs to a multi-hot encoded tensor.
         
-        Creates a binary vector where positions corresponding to prescribed medications
-        are set to 1.0, and all other positions are 0.0. This is used to represent
-        medication sets as targets for multi-label classification.
-        
+    def compute_loss(self, batch, artefacts, target_ddi=0.05, T=0.5, threshold=0.5):
+        """Computes a custom loss for a batch input
+
         Args:
-            med_ids: List of medication indices that should be set to 1.
-                Can be empty for visits with no medications.
-            size: Total vocabulary size (number of possible medications).
-            device: Device to create the tensor on.
-        
-        Returns:
-            Binary tensor of shape (size,) with 1.0 at positions in med_ids,
-            0.0 elsewhere.
-        
-        Example:
-            >>> _multi_hot([0, 2, 5], size=10, device='cpu')
-            tensor([1., 0., 1., 0., 0., 1., 0., 0., 0., 0.])
+            batch (_type_): _description_
         """
-        # Initialize zero vector
-        y = torch.zeros(size, device=device)
+
+        logits, ddi_loss = self(batch, artefacts)
+        y = batch["y"].to(self.device).float()
         
-        # Set positions corresponding to prescribed medications to 1
-        if med_ids:
-            y[torch.tensor(med_ids, dtype=torch.long, device=device)] = 1.0
+        margin_target = multihot_to_margin_target(y)
         
-        return y
+        bce_loss = self.bce_loss_fn(logits, y)
+        mlm_loss = self.mlm_loss_fn(logits, margin_target)
+        pred_loss = 0.9 * bce_loss + 0.1 * mlm_loss
         
-    def fit(
-        self,
-        train_samples: List["Sample"],
-        val_samples: Optional[List["Sample"]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Train the GAMENet model on patient visit sequences.
+        with torch.no_grad():
+            pred_lists = pred_indices_from_logits(logits, threshold=threshold)
+            current_ddi_rate = ddi_rate_score(pred_lists, ddi_adj=artefacts.get("ddi_adj", None))
         
-        Args:
-            train_samples: List of training samples, where each sample is a tuple
-                (visit_history, target_medications). visit_history is a list of visits,
-                and target_medications is a list of medication indices to predict.
-            val_samples: Optional validation samples in the same format as train_samples.
-                If provided, validation metrics are computed after each epoch and the
-                best model checkpoint is saved.
-        
-        Returns:
-            Dictionary containing training history:
-                - train_loss: List of average training loss per epoch
-                - val_metrics: List of validation metric dicts per epoch
-                - best_epoch: Epoch number with best validation score
-                - best_score: Best validation score achieved
-                - best_ckpt_path: Path to saved best model checkpoint
-                - training_time: Total training time in seconds
-        """
-        training_start_time = time.time()
-        
-        # Validate configuration
-        assert self.cfg.batch_size == 1, \
-            "Current forward() implementation processes single samples; keep batch_size=1"
-
-        # Set random seeds for reproducibility
-        torch.manual_seed(self.cfg.seed)
-        np.random.seed(self.cfg.seed)
-        logger.info(f"Set random seed to {self.cfg.seed}")
-
-        # Setup model and optimizer
-        self.to(self.device)
-        optimizer = torch.optim.Adam(
-            self.parameters(), 
-            lr=self.cfg.lr, 
-            weight_decay=self.cfg.weight_decay
-        )
-        bce_loss_fn = nn.BCEWithLogitsLoss()
-        
-        logger.info(f"Initialized optimizer with lr={self.cfg.lr}, weight_decay={self.cfg.weight_decay}")
-
-        # Initialize training history
-        history: Dict[str, Any] = {
-            "train_loss": [],
-            "val_metrics": [],
-            "best_epoch": None,
-            "best_score": None,
-            "best_ckpt_path": None,
-            "training_time": None,
-        }
-        global_step = 0
-
-        # Get evaluation settings
-        threshold = getattr(self.cfg, "threshold", 0.5)
-        ignore_ids = getattr(self.cfg, "ignore_ids", [0, 1])  # Optional[Set[int]]
-        
-        # Validate DDI adjacency matrix is available for metrics
-        if val_samples is not None:
-            assert self.ddi_adj is not None, \
-                "Need self.ddi_adj (np.ndarray) to compute validation DDI metrics"
-
-        # Define scoring function for model selection
-        # Higher score is better: prioritize Jaccard similarity, penalize DDI rate
-        def compute_val_score(metrics: Dict[str, float]) -> float:
-            """
-            Compute validation score for model selection.
-            Score = Jaccard - 0.1 * DDI_rate (higher is better)
-            """
-            return float(metrics["jaccard"] - 0.1 * metrics["ddi_rate_pred"])
-        
-        # Setup checkpoint directory
-        save_dir = Path(self.cfg.save_dir)
-        save_dir.mkdir(parents=True, exist_ok=True)
-        ckpt_path = save_dir / self.cfg.ckpt_name
-        logger.info(f"Checkpoints will be saved to: {ckpt_path}")
-
-        # Track best model
-        best_score = -float("inf")
-        best_epoch = -1
-        best_state = None
-
-        # ========================================================================
-        # Training Loop
-        # ========================================================================
-        logger.info(f"Starting training for {self.cfg.epochs} epochs on {len(train_samples)} samples")
-        
-        for epoch in range(1, self.cfg.epochs + 1):
-            epoch_start_time = time.time()
-            self.train()
-            
-            # Shuffle training samples
-            sample_indices = np.random.permutation(len(train_samples))
-
-            epoch_loss_sum = 0.0
-            num_batches = 0
-
-            # Iterate over shuffled training samples
-            for idx in sample_indices:
-                visit_history, target_medications = train_samples[idx]
-
-                # Forward pass
-                medication_logits, ddi_loss = self(visit_history)  # (1, num_medications)
-
-                # Prepare target as multi-hot vector
-                target_multi_hot = self._multi_hot(
-                    target_medications, 
-                    self.vocab_size[2],  # medication vocabulary size
-                    self.device
-                ).unsqueeze(0)  # (1, num_medications)
-
-                # Compute losses
-                bce_loss = bce_loss_fn(medication_logits, target_multi_hot)
-                
-                # Combined loss: 90% BCE + weighted DDI penalty
-                total_loss = 0.9 * bce_loss + self.cfg.ddi_lambda * ddi_loss
-
-                # Backward pass and optimization
-                optimizer.zero_grad(set_to_none=True)
-                total_loss.backward()
-                
-                # Gradient clipping to prevent exploding gradients
-                if self.cfg.max_grad_norm is not None:
-                    torch.nn.utils.clip_grad_norm_(self.parameters(), self.cfg.max_grad_norm)
-                
-                optimizer.step()
-
-                # Accumulate metrics
-                epoch_loss_sum += float(total_loss.item())
-                num_batches += 1
-                global_step += 1
-
-                # Periodic logging during epoch
-                if self.cfg.log_every and global_step % self.cfg.log_every == 0:
-                    logger.debug(
-                        f"[Epoch {epoch}/{self.cfg.epochs}] Step {global_step} | "
-                        f"Loss={total_loss.item():.4f} (BCE={bce_loss.item():.4f}, "
-                        f"DDI={ddi_loss.item():.4f})"
-                    )
-
-            # Compute epoch metrics
-            avg_train_loss = epoch_loss_sum / max(num_batches, 1)
-            epoch_time = time.time() - epoch_start_time
-            history["train_loss"].append(avg_train_loss)
-            
-            logger.info(f"Epoch {epoch} completed in {epoch_time:.2f}s | Train Loss={avg_train_loss:.4f}")
-
-            # ====================================================================
-            # Validation
-            # ====================================================================
-            if val_samples is not None:
-                val_start_time = time.time()
-                
-                # Compute validation metrics
-                val_metrics = self._eval_val_metrics(
-                    val_samples,
-                    ddi_adj=self.ddi_adj,
-                    threshold=threshold,
-                    ignore_ids=ignore_ids,
-                )
-                history["val_metrics"].append(val_metrics)
-                
-                val_time = time.time() - val_start_time
-
-                # Log validation results
-                logger.info(
-                    f"Epoch {epoch} Validation ({val_time:.2f}s) | "
-                    f"Precision={val_metrics['precision']:.4f} "
-                    f"Recall={val_metrics['recall']:.4f} "
-                    f"F1={val_metrics['f1']:.4f} "
-                    f"Jaccard={val_metrics['jaccard']:.4f} "
-                    f"DDI_pred={val_metrics['ddi_rate_pred']:.4f} "
-                    f"DDI_true={val_metrics['ddi_rate_true']:.4f}"
-                )
-
-                # Check if this is the best model so far
-                current_score = compute_val_score(val_metrics)
-                if current_score > best_score:
-                    best_score = current_score
-                    best_epoch = epoch
-                    best_state = copy.deepcopy(self.state_dict())
-                    
-                    logger.info(
-                        f"New best model! Score={best_score:.4f} "
-                        f"(Jaccard={val_metrics['jaccard']:.4f}, "
-                        f"DDI={val_metrics['ddi_rate_pred']:.4f})"
-                    )
-
-                    # Save best checkpoint
-                    torch.save(
-                        {
-                            "model_state_dict": best_state,
-                            "epoch": epoch,
-                            "score": float(best_score),
-                            "val_metrics": val_metrics,
-                            "cfg": self.cfg,
-                        },
-                        ckpt_path,
-                    )
-                    logger.info(f"Checkpoint saved to {ckpt_path}")
-
-        # ========================================================================
-        # Load best model and finalize
-        # ========================================================================
-        if val_samples is not None and best_state is not None:
-            logger.info(f"Loading best checkpoint from epoch {best_epoch}")
-            
-            # Load best model weights
-            checkpoint = torch.load(ckpt_path, weights_only=False)
-            self.load_state_dict(checkpoint["model_state_dict"])
-
-            # Update history with best model info
-            history["best_epoch"] = int(checkpoint.get("epoch", best_epoch))
-            history["best_score"] = float(checkpoint.get("score", best_score))
-            history["best_ckpt_path"] = str(ckpt_path)
-
-            best_metrics = checkpoint.get("val_metrics", {})
-            if best_metrics:
-                logger.info(
-                    f"Best model loaded: Epoch {history['best_epoch']} | "
-                    f"Score={history['best_score']:.4f} | "
-                    f"Jaccard={best_metrics.get('jaccard', float('nan')):.4f} | "
-                    f"DDI_pred={best_metrics.get('ddi_rate_pred', float('nan')):.4f}"
-                )
-
-        # Record total training time
-        total_training_time = time.time() - training_start_time
-        history["training_time"] = total_training_time
-        
-        logger.info(f"Training completed in {total_training_time:.2f}s ({total_training_time/60:.2f} minutes)")
-        
-        return history
-
-    @torch.no_grad()
-    def predict(
-        self,
-        prefix: List[Visit],
-        *,
-        threshold: float = 0.5,
-        topk: Optional[int] = None,
-        return_probs: bool = False,
-    ):
-        """
-        Predict medications for a patient given their visit history.
-        
-        Two prediction modes:
-        1. Threshold-based: Return all medications with probability >= threshold
-        2. Top-k: Return the k medications with highest probabilities
-        
-        Args:
-            prefix: Patient's visit history as a list of visits. Each visit is
-                a tuple of [diagnoses, procedures, medications].
-            threshold: Probability threshold for binary prediction (default: 0.5).
-                Only used when topk is None.
-            topk: If specified, return the top-k medications by probability instead
-                of using threshold-based prediction.
-            return_probs: If True, return both medication indices and their probabilities.
-                If False, return only medication indices (default: False).
-        
-        Returns:
-            If return_probs=False: List of predicted medication indices
-            If return_probs=True: Tuple of (medication_indices, probability_array)
-        """
-        self.eval()
-        
-        # Forward pass to get medication logits
-        medication_logits = self(prefix)  # (1, num_medications)
-        
-        # Convert logits to probabilities
-        medication_probs = torch.sigmoid(medication_logits).squeeze(0)  # (num_medications,)
-
-        # Top-k prediction mode
-        if topk is not None:
-            # Get indices of top-k medications
-            top_indices = torch.topk(medication_probs, int(topk)).indices.tolist()
-            
-            if return_probs:
-                return (top_indices, medication_probs.detach().cpu().numpy())
-            else:
-                return top_indices
-
-        # Threshold-based prediction mode
-        # Find all medications with probability >= threshold
-        predicted_indices = (medication_probs >= threshold).nonzero(as_tuple=False).squeeze(-1).tolist()
-        
-        if return_probs:
-            return (predicted_indices, medication_probs.detach().cpu().numpy())
+        if current_ddi_rate <= target_ddi:
+            return pred_loss
         else:
-            return predicted_indices
+            rnd = torch.exp(torch.tensor((target_ddi - current_ddi_rate) / T, device=self.device)).item()
+            if torch.rand(1, device=self.device).item() < rnd:
+                return ddi_loss
+            else:
+                return pred_loss
     
-    @torch.no_grad()
-    def _eval_val_metrics(
-        self,
-        samples: List["Sample"],
-        *,
-        ddi_adj: np.ndarray,
-        threshold: float = 0.5,
-        ignore_ids: Optional[Set[int]] = None,
-    ) -> Dict[str, float]:
-        """
-        Evaluate comprehensive validation metrics for medication prediction.
+    def compute_metrics(self, batch, artefacts) -> Metrics:
+        logits = self(batch, artefacts)
+        pred_multi_hot = (torch.sigmoid(logits) >= 0.5).int()
+        pred_probs = torch.sigmoid(logits)
         
-        Computes multi-label classification metrics (Precision, Recall, F1, Jaccard)
-        as well as drug-drug interaction (DDI) rates for both predictions and
-        ground truth medication sets.
-        
-        Args:
-            samples: List of (visit_history, target_medications) tuples where
-                visit_history contains patient history and target_medications are
-                the ground truth medications to predict.
-            ddi_adj: Drug-drug interaction adjacency matrix of shape 
-                (num_medications, num_medications) for computing DDI metrics.
-            threshold: Probability threshold for binary classification (default: 0.5).
-            ignore_ids: Optional set of medication IDs to exclude from evaluation.
-                Useful for filtering out rare medications or special codes.
-        
-        Returns:
-            Dictionary containing:
-                - precision: Precision score
-                - recall: Recall score
-                - f1: F1 score
-                - jaccard: Jaccard similarity (intersection over union)
-                - ddi_rate_pred: DDI rate in predicted medication sets
-                - ddi_rate_true: DDI rate in ground truth medication sets
-        """
-        self.eval()
-        
-        num_samples = len(samples)
-        logger.debug(f"Evaluating {num_samples} validation samples with threshold={threshold}")
-        
-        # Collect predictions and ground truth for all samples
-        ground_truth_sets = []
-        predicted_sets = []
-        
-        for visit_history, target_medications in samples:
-            # Get model predictions using the specified threshold
-            predicted_medications = self.predict(visit_history, threshold=threshold)
-            
-            ground_truth_sets.append(target_medications)
-            predicted_sets.append(predicted_medications)
-        
-        logger.debug(f"Generated predictions for {len(predicted_sets)} samples")
-        
-        # Compute comprehensive evaluation metrics
-        metrics = evaluate_multilabel_sets(
-            y_true=ground_truth_sets,
-            y_pred=predicted_sets,
-            ddi_adj=ddi_adj,
-            ignore_ids=ignore_ids,
-        )
-        
-        # Log key metrics at debug level (fit() will log at info level)
-        logger.debug(
-            f"Metrics computed: Jaccard={metrics.get('jaccard', 0):.4f}, "
-            f"F1={metrics.get('f1', 0):.4f}, "
-            f"DDI_pred={metrics.get('ddi_rate_pred', 0):.4f}"
-        )
+        metrics = Metrics()
+        metrics.compute_ddi(pred_multi_hot, artefacts.get("ddi_adj", None))
+        metrics.compute_jaccard(pred_multi_hot, batch["y"])
+        metrics.compute_f1(pred_multi_hot, batch["y"])
+        metrics.compute_prauc(pred_probs, batch["y"])
+        metrics.compute_num_meds(pred_multi_hot)
         
         return metrics
     

@@ -1,92 +1,67 @@
-import hydra
-from omegaconf import DictConfig
-from torch import manual_seed as torch_seed
-from torch import device as torch_device
-from torch import cuda
-from numpy.random import seed as np_seed
-from random import seed as random_seed
-from torch.backends import cudnn
-from torch.nn import Module
+from src.utils.logging import setup_logging
+setup_logging()
 
+import yaml # noqa: E402
+import argparse # noqa: E402
 
-from src.evaluation.evaluator_factory import create_evaluator
-from src.data.processed import create_processed_loader
-from src.data.splitting.splitter_factory import create_splitter
-from src.models.model_factory import create_model
-from src.data.preprocessors.preprocessor_factory import create_preprocessor
-from src.data.raw import create_raw_loader
-from src.data.model_inputs.factory import create_model_input_builder
-from src.training.trainer_factory import create_trainer
+from pathlib import Path # noqa: E402
+from typing import Dict # noqa: E402
 
+from src.utils.logging import get_logger # noqa: E402
+from src.preprocess.MIMIC3Preprocessor import MIMIC3Preprocessor # noqa: E402
+from src.load.MIMIC3Loader import MIMIC3Loader, MIMIC3LoaderConfig # noqa: E402
 
+logger = get_logger("MAIN")
 
-@hydra.main(version_base=None, config_path='config', config_name='config')
-def main(cfg: DictConfig) -> None:
-    if cfg.run.mode in ["full", "process"]:
-        raw_loader = create_raw_loader(cfg.dataset)
-        print(raw_loader)
-        raw_data = raw_loader.load(cfg.dataset.paths, cfg.dataset.kwargs)
-        print(raw_data)
-        preprocessor = create_preprocessor(cfg.preprocessor, log_level=cfg.logging.level)
-        processed_data = preprocessor.run(raw_data)
-        preprocessor.save(processed_data)
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", type=str, default="config/main.yaml", help="yaml config path")
 
-        # If process-only, stop here
-        if cfg.run.mode == "process":
-            return
-        
-    torch_seed(cfg.run.seed)
-    np_seed(cfg.run.seed)
-    random_seed(cfg.run.seed)
-    cuda.manual_seed_all(cfg.run.seed)
-    cudnn.deterministic = True
-    cudnn.benchmark = False
+args = parser.parse_args()
+config_path = args.config
+
+def load_config(path: str) -> dict:
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
+
+def get_loader(config: Dict):
+    data_config = config.get("data", None)
+    if data_config is None:
+        raise ValueError("Unable to read the config for the loader")
+    dataset = data_config.get("dataset", "mimic_iii")
+    if dataset == "mimic_iii":
+        loader_config = MIMIC3LoaderConfig.from_config(data_config)
+        return MIMIC3Loader(cfg=loader_config)
+    else:
+        raise ValueError(f"Dataset: {dataset} not supported yet.")
+
+def get_preprocessor(config: Dict):
+    preprocessor_config = config.get("preprocessor", None)
+    if preprocessor_config is None:
+        raise ValueError("Unable to read the config for the preprocessor")
     
-    dataset_context = create_processed_loader(cfg.preprocessor).load()
-    splitter = create_splitter(cfg.splitter)
-    train_splits, val_splits, test_splits = splitter.split(dataset_context)
-    device = torch_device("cuda" if cuda.is_available() else "cpu")
-    model = create_model(cfg.model, device=device)
-    if isinstance(model, Module):
-        model = model.to(device)
+    preprocessor = preprocessor_config.get("dataset", "mimic_iii")
+    if preprocessor == "mimic_iii":
+        return MIMIC3Preprocessor()
+    else:
+        raise ValueError(f"Preprocessor: {preprocessor} not supported yet.")
     
-    voc_size = dataset_context.vocab_sizes()
-    
-    model_input_builder = create_model_input_builder(
-        cfg.model_inputs,
-        log_level=cfg.logging.level,
-        run_mode=cfg.run.mode,
-    )
-    train_data, val_data, test_data = model_input_builder.run(
-        source=dataset_context.name,
-        context=dataset_context,
-        train_data=train_splits,
-        val_data=val_splits,
-        test_data=test_splits,
-        voc_size=voc_size,
-    )
-    
-    
-    if cfg.run.mode == "full" or cfg.run.mode == "train":
-        trainer = create_trainer(cfg.trainer)
-        trainer.train(model, train_data, val_data, context=dataset_context)
-        
-        if cfg.run.mode == "train":
-            return
-    
-    if cfg.run.mode == "full" or cfg.run.mode == "test":
-        if cfg.run.mode == "test" and cfg.run.model:
-            if hasattr(model, "load_memory"):
-                model.load_memory(cfg.run.model, map_location=device)
-                extras = None
-            else:
-                extras = model.load(cfg.run.model)
-        evaluator = create_evaluator(cfg.evaluator)
-        results = evaluator.evaluate(model, test_data, context=dataset_context)
-        
-        if cfg.run.mode == "test":
-            return
-        
+def get_data_module(config: Dict):
+    data_module_config = config.get("datamodule", None)
+    if data_module_config is None:
+        raise ValueError("Unable to read the config for the Data Module")
+
 
 if __name__ == "__main__":
-    main()
+    config = load_config(config_path)
+    logger.info(f"Loaded config from: {config_path}")
+    
+    loader = get_loader(config)
+    data = loader.load()
+    logger.info("Data loaded from files")
+    
+    preprocessor = get_preprocessor(config)
+    processed_data = preprocessor.process(data)
+    logger.info("Data processed")
+    
+    data_module = get_data_module(config)
+    train_loader, val_loader, test_loader = data_module.load(processed_data)

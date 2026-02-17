@@ -1,9 +1,0 @@
-name: 4sdrug
-epochs: 200
-lr: 0.0002
-alpha: 0.5
-beta: 1.0
-eval_every: 1
-save_dir: saved/4SDrug
-log_level: INFO
-show_progress: true

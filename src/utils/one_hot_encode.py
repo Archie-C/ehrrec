@@ -53,3 +53,19 @@ def multihot_to_id_lists(preds: torch.Tensor):
         torch.nonzero(row, as_tuple=True)[0].tolist()
         for row in preds
     ]
+
+def multihot_to_margin_target(y_multi_hot: torch.Tensor) -> torch.Tensor:
+    # y_multi_hot: (B, C) 0/1
+    B, C = y_multi_hot.shape
+    out = torch.full((B, C), -1, dtype=torch.long, device=y_multi_hot.device)
+    for i in range(B):
+        idx = torch.where(y_multi_hot[i] > 0)[0]
+        out[i, :idx.numel()] = idx
+    return out
+
+
+def pred_indices_from_logits(logits: torch.Tensor, threshold: float = 0.5):
+    # logits: (B, C)
+    probs = torch.sigmoid(logits)
+    pred_bin = probs >= threshold
+    return [torch.where(pred_bin[i])[0].tolist() for i in range(logits.size(0))]

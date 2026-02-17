@@ -415,7 +415,7 @@ class DrugDoctorOriginal(BaseModel, nn.Module):
                 results.append([])
         return results
     
-def forward(self, diagnose, procedures,used_medications,used_diag,used_proc,substruct_data,d_mask_matrix, p_mask_matrix):
+def forward(self, diagnose, procedures, used_medications, used_diag, used_proc, substruct_data, d_mask_matrix, p_mask_matrix):
 
         
         batch_size = diagnose.shape[0]
